@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Journal de Trading – Luis</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const SUPABASE_URL = 'https://znfzcomilnwiouauftug.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuZnpjb21pbG53aW91YXVmdHVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzMjk0NTEsImV4cCI6MjA5ODkwNTQ1MX0.TPvy-4oIcBD4SO0alXrw2PlpQDHBAavVxwQRKXmFAgY';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
 
@@ -1120,9 +1126,12 @@
       <button class="account-manage-btn" onclick="openAccountModal()">⚙️</button>
     </div>
   </div>
-  <div class="capital-badge">
-    <span class="label">CAPITAL ACTUEL</span>
-    <span class="value" id="capitalDisplay">2 000 $</span>
+  <div style="display:flex; align-items:center; gap:16px;">
+    <span id="syncStatus" style="font-size:0.72rem; font-family:'Space Mono',monospace; color:var(--text-dim); transition:opacity 0.5s; opacity:0;"></span>
+    <div class="capital-badge">
+      <span class="label">CAPITAL ACTUEL</span>
+      <span class="value" id="capitalDisplay">2 000 $</span>
+    </div>
   </div>
 </div>
 
@@ -1605,19 +1614,100 @@
   // Each account's trades stored under localStorage key `trades_${id}`
   // Each account's capital stored under localStorage key `capital_${id}`
 
+  // ---- SUPABASE SYNC ----
+  // Strategy: localStorage for instant UI, Supabase for cross-device sync
+  // On load: fetch from Supabase and merge with local
+  // On save: write to both localStorage AND Supabase
+
+  async function syncFromSupabase() {
+    try {
+      showSyncStatus('⟳ Synchronisation...');
+      // Load accounts
+      const { data: remoteAccounts, error: accErr } = await db.from('accounts').select('*');
+      if (accErr) throw accErr;
+
+      if (remoteAccounts && remoteAccounts.length > 0) {
+        accounts = remoteAccounts.map(a => ({ id: a.id, name: a.name, capital: parseFloat(a.capital) || 2000 }));
+        localStorage.setItem('accounts', JSON.stringify(accounts));
+      } else {
+        // First time: push local accounts to Supabase
+        for (const a of accounts) {
+          await db.from('accounts').upsert({ id: a.id, name: a.name, capital: a.capital });
+        }
+      }
+
+      // Load trades for current account
+      const { data: remoteTrades, error: trErr } = await db.from('trades').select('*').eq('account_id', currentAccountId);
+      if (trErr) throw trErr;
+
+      if (remoteTrades && remoteTrades.length > 0) {
+        trades = remoteTrades.map(t => ({
+          id: t.id, date: t.date, asset: t.asset, dir: t.dir,
+          entry: t.entry, sl: t.sl, tp: t.tp, lots: t.lots,
+          result: t.result, pnl: parseFloat(t.pnl) || 0,
+          notes: t.notes, screenshot: t.screenshot
+        }));
+        localStorage.setItem(`trades_${currentAccountId}`, JSON.stringify(trades));
+      }
+
+      renderAccountSelect();
+      renderTable();
+      refreshCapitalDisplays();
+      showSyncStatus('✓ Synchronisé', 2000);
+    } catch (e) {
+      console.warn('Supabase sync error:', e);
+      showSyncStatus('⚠ Mode hors ligne', 3000);
+    }
+  }
+
+  async function pushTradeToSupabase(trade) {
+    try {
+      await db.from('trades').upsert({
+        id: trade.id, account_id: currentAccountId,
+        date: trade.date, asset: trade.asset, dir: trade.dir,
+        entry: trade.entry, sl: trade.sl, tp: trade.tp, lots: trade.lots,
+        result: trade.result, pnl: trade.pnl || 0,
+        notes: trade.notes, screenshot: trade.screenshot || null
+      });
+    } catch (e) { console.warn('Push trade error:', e); }
+  }
+
+  async function deleteTradeFromSupabase(id) {
+    try { await db.from('trades').delete().eq('id', id); }
+    catch (e) { console.warn('Delete trade error:', e); }
+  }
+
+  async function pushAccountToSupabase(acc) {
+    try { await db.from('accounts').upsert({ id: acc.id, name: acc.name, capital: acc.capital }); }
+    catch (e) { console.warn('Push account error:', e); }
+  }
+
+  async function deleteAccountFromSupabase(id) {
+    try { await db.from('accounts').delete().eq('id', id); }
+    catch (e) { console.warn('Delete account error:', e); }
+  }
+
+  function showSyncStatus(msg, hideAfter = 0) {
+    let el = document.getElementById('syncStatus');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.opacity = '1';
+    if (hideAfter) setTimeout(() => { el.style.opacity = '0'; }, hideAfter);
+  }
+
   function loadAccounts() {
     return JSON.parse(localStorage.getItem('accounts') || 'null') || [
       { id: 'account_1', name: 'Compte principal', capital: 2000 }
     ];
   }
-  function saveAccounts(accounts) {
-    localStorage.setItem('accounts', JSON.stringify(accounts));
+  function saveAccounts(accs) {
+    localStorage.setItem('accounts', JSON.stringify(accs));
+    accs.forEach(a => pushAccountToSupabase(a));
   }
 
   let accounts = loadAccounts();
   let currentAccountId = localStorage.getItem('currentAccountId') || accounts[0].id;
 
-  // Make sure currentAccountId still points to an existing account
   if (!accounts.find(a => a.id === currentAccountId)) {
     currentAccountId = accounts[0].id;
   }
@@ -1625,22 +1715,6 @@
   function currentAccount() {
     return accounts.find(a => a.id === currentAccountId) || accounts[0];
   }
-
-  // Migrate legacy single-account data into the first account on first load
-  (function migrateLegacy() {
-    const legacyTrades = localStorage.getItem('xauusd_trades');
-    const legacyCapital = localStorage.getItem('xauusd_base_capital');
-    const migrated = localStorage.getItem('accounts_migrated');
-    if (!migrated && (legacyTrades || legacyCapital)) {
-      const firstId = accounts[0].id;
-      if (legacyTrades) localStorage.setItem(`trades_${firstId}`, legacyTrades);
-      if (legacyCapital) {
-        accounts[0].capital = parseFloat(legacyCapital) || 2000;
-        saveAccounts(accounts);
-      }
-      localStorage.setItem('accounts_migrated', '1');
-    }
-  })();
 
   function getAccountTrades(id) {
     return JSON.parse(localStorage.getItem(`trades_${id}`) || '[]');
@@ -1961,7 +2035,7 @@
     }
 
     trades.unshift(trade);
-    saveTrades();
+    saveAndSync(trade);
     renderTable();
     refreshCapitalDisplays();
     closeModal();
@@ -2043,6 +2117,7 @@
     if (confirm('Supprimer ce trade ?')) {
       trades = trades.filter(t => t.id !== id);
       saveTrades();
+      deleteTradeFromSupabase(id);
       renderTable();
       refreshCapitalDisplays();
     }
@@ -2054,6 +2129,12 @@
     } catch (err) {
       alert('Erreur de sauvegarde (peut-être trop de screenshots lourds). Essaie avec des images plus légères.');
     }
+  }
+
+  // Push a single trade to Supabase after save (called explicitly)
+  function saveAndSync(trade) {
+    saveTrades();
+    if (trade) pushTradeToSupabase(trade);
   }
 
   // ---- RENDER TABLE ----
@@ -2568,6 +2649,11 @@
 
     trades = [...newTrades, ...trades];
     saveTrades();
+    // Push all new trades to Supabase
+    showSyncStatus('⟳ Upload en cours...');
+    Promise.all(newTrades.map(t => pushTradeToSupabase(t)))
+      .then(() => showSyncStatus('✓ Synchronisé', 2000))
+      .catch(() => showSyncStatus('⚠ Upload partiel', 3000));
     renderTable();
     refreshCapitalDisplays();
     closeImportModal();
@@ -2868,6 +2954,7 @@
     // and pre-compute them so they're ready when the user navigates there.
     updateStats();
     renderCalendar();
+    syncFromSupabase();
   }
 
   function openAccountModal() {
@@ -2951,6 +3038,8 @@
   refreshCapitalDisplays();
   onRiskChange();
   renderAccountSelect();
+  // Sync from Supabase on load
+  syncFromSupabase();
 
 
 </script>
