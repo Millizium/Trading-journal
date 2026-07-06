@@ -1580,6 +1580,7 @@
       <button class="btn" onclick="addAccount()">+ Ajouter ce compte</button>
     </div>
     <div class="modal-actions" style="margin-top:16px">
+      <button class="btn" onclick="forceUploadCurrentAccount()" style="margin-bottom:10px;">☁️ Forcer l'upload vers Supabase</button>
       <button class="btn-cancel" onclick="closeAccountModal()">Fermer</button>
     </div>
   </div>
@@ -2955,6 +2956,23 @@
     updateStats();
     renderCalendar();
     syncFromSupabase();
+  }
+
+  async function forceUploadCurrentAccount() {
+    const acc = currentAccount();
+    showSyncStatus('⟳ Upload en cours...');
+    try {
+      // Upload account
+      await pushAccountToSupabase(acc);
+      // Upload all trades
+      const localTrades = getAccountTrades(currentAccountId);
+      await Promise.all(localTrades.map(t => pushTradeToSupabase(t)));
+      showSyncStatus('✓ Upload terminé — ' + localTrades.length + ' trades envoyés', 3000);
+      renderAccountList();
+    } catch(e) {
+      showSyncStatus('⚠ Erreur upload', 3000);
+      console.warn(e);
+    }
   }
 
   function openAccountModal() {
