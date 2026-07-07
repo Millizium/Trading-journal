@@ -2936,6 +2936,11 @@
     const idSet = new Set(ids);
     trades = trades.filter(t => !idSet.has(t.id));
     saveTrades();
+    // Delete from Supabase
+    showSyncStatus('⟳ Suppression...');
+    Promise.all([...idSet].map(id => deleteTradeFromSupabase(id)))
+      .then(() => showSyncStatus('✓ Supprimé', 2000))
+      .catch(() => showSyncStatus('⚠ Erreur suppression', 3000));
     renderTable();
     refreshCapitalDisplays();
   }
@@ -3020,7 +3025,7 @@
     }).join('');
   }
 
-  function clearAccountTrades(id) {
+  async function clearAccountTrades(id) {
     const acc = accounts.find(a => a.id === id);
     const name = acc ? acc.name : 'ce compte';
     if (!confirm(`Supprimer TOUS les trades de "${name}" ? Le compte sera conservé.`)) return;
@@ -3029,6 +3034,15 @@
       trades = [];
       renderTable();
       refreshCapitalDisplays();
+    }
+    // Delete all trades for this account from Supabase
+    showSyncStatus('⟳ Suppression Supabase...');
+    try {
+      await db.from('trades').delete().eq('account_id', id);
+      showSyncStatus('✓ Supprimé', 2000);
+    } catch(e) {
+      showSyncStatus('⚠ Erreur suppression', 3000);
+      console.warn(e);
     }
     renderAccountList();
   }
