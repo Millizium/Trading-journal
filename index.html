@@ -1104,11 +1104,19 @@
   .cal-week-card:hover { border-color: var(--text-dim); }
 
   @media (max-width: 760px) {
-    .calc-wrapper, .stats-grid, .rules-grid { grid-template-columns: 1fr; }
+    .calc-wrapper, .rules-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat-card { padding: 14px; }
+    .stat-card .s-val { font-size: 1.15rem; }
     .modal-grid { grid-template-columns: 1fr; }
     .tabs { overflow-x: auto; }
-    .tab { white-space: nowrap; }
+    .tab { white-space: nowrap; padding: 10px 12px; font-size: 0.78rem; }
     .calendar-layout { grid-template-columns: 1fr; }
+    .header { padding: 14px 16px; flex-wrap: wrap; gap: 10px; }
+    .section { padding: 20px 16px; }
+    .journal-header { flex-direction: column; align-items: flex-start; }
+    .header-center { width: 100%; justify-content: flex-start; }
+    .stats-section-title { margin: 20px 0 10px; }
   }
 
 </style>
