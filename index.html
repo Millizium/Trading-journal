@@ -1600,6 +1600,15 @@
       <label>Notes</label>
       <input type="text" id="e-notes">
     </div>
+    <div class="input-group" style="margin-top:8px">
+      <label>Screenshot</label>
+      <div class="screenshot-zone" id="editScreenshotZone" onclick="document.getElementById('editScreenshotInput').click()">
+        <p>📷 Clique, glisse une image, ou colle (Ctrl+V)</p>
+      </div>
+      <input type="file" id="editScreenshotInput" accept="image/*">
+      <img class="screenshot-preview" id="editScreenshotPreview">
+      <button class="remove-shot" id="editRemoveShot" onclick="removeEditScreenshot(event)">✕ Retirer l'image</button>
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeEditModal()">Annuler</button>
       <button class="btn btn-save" onclick="saveEditTrade()">Enregistrer</button>
@@ -2947,6 +2956,8 @@
   }
 
   // ---- EDIT TRADE ----
+  let editPendingScreenshot = null;
+
   function openEditModal(id) {
     const t = trades.find(t => t.id === id);
     if (!t) return;
@@ -2961,11 +2972,76 @@
     document.getElementById('e-result').value = t.result || 'open';
     document.getElementById('e-pnl').value = t.pnl || 0;
     document.getElementById('e-notes').value = t.notes || '';
+    // Load existing screenshot if any
+    editPendingScreenshot = t.screenshot || null;
+    const preview = document.getElementById('editScreenshotPreview');
+    const removeBtn = document.getElementById('editRemoveShot');
+    if (t.screenshot) {
+      preview.src = t.screenshot;
+      preview.classList.add('show');
+      removeBtn.classList.add('show');
+    } else {
+      preview.classList.remove('show');
+      removeBtn.classList.remove('show');
+    }
     document.getElementById('editModal').classList.add('open');
   }
 
   function closeEditModal() {
     document.getElementById('editModal').classList.remove('open');
+    editPendingScreenshot = null;
+    document.getElementById('editScreenshotPreview').classList.remove('show');
+    document.getElementById('editRemoveShot').classList.remove('show');
+    document.getElementById('editScreenshotInput').value = '';
+  }
+
+  function removeEditScreenshot(e) {
+    if (e) e.stopPropagation();
+    editPendingScreenshot = null;
+    document.getElementById('editScreenshotPreview').classList.remove('show');
+    document.getElementById('editRemoveShot').classList.remove('show');
+    document.getElementById('editScreenshotInput').value = '';
+  }
+
+  // Screenshot upload handlers for edit modal
+  document.addEventListener('DOMContentLoaded', () => {
+    const editInput = document.getElementById('editScreenshotInput');
+    const editZone = document.getElementById('editScreenshotZone');
+    if (editInput) {
+      editInput.addEventListener('change', e => {
+        if (e.target.files[0]) handleEditScreenshot(e.target.files[0]);
+      });
+    }
+    if (editZone) {
+      editZone.addEventListener('dragover', e => { e.preventDefault(); editZone.classList.add('dragover'); });
+      editZone.addEventListener('dragleave', () => editZone.classList.remove('dragover'));
+      editZone.addEventListener('drop', e => {
+        e.preventDefault(); editZone.classList.remove('dragover');
+        if (e.dataTransfer.files[0]) handleEditScreenshot(e.dataTransfer.files[0]);
+      });
+    }
+  });
+
+  document.addEventListener('paste', e => {
+    if (!document.getElementById('editModal').classList.contains('open')) return;
+    const items = e.clipboardData.items;
+    for (let item of items) {
+      if (item.type.indexOf('image') !== -1) {
+        handleEditScreenshot(item.getAsFile()); break;
+      }
+    }
+  });
+
+  function handleEditScreenshot(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      editPendingScreenshot = e.target.result;
+      const preview = document.getElementById('editScreenshotPreview');
+      preview.src = editPendingScreenshot;
+      preview.classList.add('show');
+      document.getElementById('editRemoveShot').classList.add('show');
+    };
+    reader.readAsDataURL(file);
   }
 
   function saveEditTrade() {
@@ -2984,6 +3060,7 @@
       result: document.getElementById('e-result').value,
       pnl: parseFloat(document.getElementById('e-pnl').value) || 0,
       notes: document.getElementById('e-notes').value,
+      screenshot: editPendingScreenshot,
     };
     saveAndSync(trades[idx]);
     renderTable();
