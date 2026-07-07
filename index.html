@@ -1629,6 +1629,7 @@
   // On save: write to both localStorage AND Supabase
 
   async function syncFromSupabase() {
+    if (isClearingTrades) return; // Don't sync while a deletion is in progress
     try {
       showSyncStatus('⟳ Synchronisation...');
       // Load accounts
@@ -3025,24 +3026,35 @@
     }).join('');
   }
 
+  let isClearingTrades = false;
+
   async function clearAccountTrades(id) {
     const acc = accounts.find(a => a.id === id);
     const name = acc ? acc.name : 'ce compte';
     if (!confirm(`Supprimer TOUS les trades de "${name}" ? Le compte sera conservé.`)) return;
-    localStorage.removeItem(`trades_${id}`);
-    if (id === currentAccountId) {
-      trades = [];
-      renderTable();
-      refreshCapitalDisplays();
-    }
-    // Delete all trades for this account from Supabase
-    showSyncStatus('⟳ Suppression Supabase...');
+
+    isClearingTrades = true;
+    showSyncStatus('⟳ Suppression...');
+
     try {
-      await db.from('trades').delete().eq('account_id', id);
+      // 1. Delete from Supabase FIRST (wait for confirmation)
+      const { error } = await db.from('trades').delete().eq('account_id', id);
+      if (error) throw error;
+
+      // 2. Only then clear localStorage
+      localStorage.removeItem(`trades_${id}`);
+      if (id === currentAccountId) {
+        trades = [];
+        renderTable();
+        refreshCapitalDisplays();
+        updateStats();
+      }
       showSyncStatus('✓ Supprimé', 2000);
     } catch(e) {
       showSyncStatus('⚠ Erreur suppression', 3000);
       console.warn(e);
+    } finally {
+      isClearingTrades = false;
     }
     renderAccountList();
   }
