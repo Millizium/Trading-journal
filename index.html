@@ -727,6 +727,11 @@
     background: none; border: none; color: var(--red); cursor: pointer; font-size: 0.9rem; opacity: 0.6;
   }
   .del-btn:hover { opacity: 1; }
+  .edit-btn {
+    background: none; border: none; cursor: pointer; font-size: 0.85rem; opacity: 0.5;
+    transition: opacity 0.15s;
+  }
+  .edit-btn:hover { opacity: 1; }
   .thumb-btn {
     width: 32px; height: 32px;
     border-radius: 6px;
@@ -1383,10 +1388,11 @@
 
   <div class="stats-section-title">Évolution du capital</div>
   <div class="card" style="max-width:100%">
-    <div id="capitalChartWrap" style="width:100%; height:260px; position:relative;">
+    <div id="capitalChartWrap" style="width:100%; height:230px; position:relative;">
       <div id="capitalYLabels" style="position:absolute;top:0;left:0;width:72px;height:100%;pointer-events:none;"></div>
-      <svg id="capitalChart" style="position:absolute;top:0;left:72px;width:calc(100% - 72px);height:100%;" viewBox="0 0 928 260" preserveAspectRatio="none"></svg>
+      <svg id="capitalChart" style="position:absolute;top:0;left:72px;width:calc(100% - 72px);height:100%;" viewBox="0 0 928 230" preserveAspectRatio="none"></svg>
     </div>
+    <div id="capitalXLabels" style="display:flex;justify-content:space-between;padding:4px 0 0 72px;"></div>
     <div class="empty-state" id="chartEmptyState" style="display:none; padding:30px 20px;">
       <p>Pas encore assez de trades clôturés pour afficher la courbe.</p>
     </div>
@@ -1536,6 +1542,67 @@
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Annuler</button>
       <button class="btn btn-save" onclick="saveTrade()">Enregistrer le Trade</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL EDITION TRADE ===== -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <h3>Modifier le Trade</h3>
+    <input type="hidden" id="e-id">
+    <div class="modal-grid">
+      <div class="input-group">
+        <label>Date</label>
+        <input type="date" id="e-date">
+      </div>
+      <div class="input-group">
+        <label>Actif</label>
+        <input type="text" id="e-asset">
+      </div>
+      <div class="input-group">
+        <label>Direction</label>
+        <select id="e-dir">
+          <option value="LONG">LONG</option>
+          <option value="SHORT">SHORT</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Prix d'entrée</label>
+        <input type="number" id="e-entry" step="0.01">
+      </div>
+      <div class="input-group">
+        <label>Stop Loss</label>
+        <input type="number" id="e-sl" step="0.01">
+      </div>
+      <div class="input-group">
+        <label>TP</label>
+        <input type="number" id="e-tp" step="0.01">
+      </div>
+      <div class="input-group">
+        <label>Lots</label>
+        <input type="number" id="e-lots" step="0.01">
+      </div>
+      <div class="input-group">
+        <label>Résultat</label>
+        <select id="e-result">
+          <option value="open">En cours</option>
+          <option value="win">Win ✅</option>
+          <option value="loss">Loss ❌</option>
+        </select>
+      </div>
+      <div class="input-group" style="grid-column:span 2">
+        <label>P&L ($)</label>
+        <input type="number" id="e-pnl" step="0.01">
+      </div>
+    </div>
+    <div class="input-group" style="margin-top:8px">
+      <label>Notes</label>
+      <input type="text" id="e-notes">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeEditModal()">Annuler</button>
+      <button class="btn btn-save" onclick="saveEditTrade()">Enregistrer</button>
     </div>
   </div>
 </div>
@@ -2247,7 +2314,10 @@
             : `<span class="thumb-btn empty">—</span>`}
         </td>
         <td style="color:var(--text-dim); font-size:0.78rem; max-width:150px; overflow:hidden; text-overflow:ellipsis">${t.notes||'—'}</td>
-        <td><button class="del-btn" onclick="deleteTrade(${t.id})">✕</button></td>
+        <td style="display:flex; gap:6px;">
+          <button class="edit-btn" onclick="openEditModal(${t.id})" title="Modifier">✏️</button>
+          <button class="del-btn" onclick="deleteTrade(${t.id})">✕</button>
+        </td>
       </tr>
     `).join('');
     updateBulkBar();
@@ -2316,8 +2386,8 @@
       points.push({ x: points.length, y: running, label: t.date });
     });
 
-    const W = 928, H = 260;
-    const padL = 8, padR = 8, padT = 20, padB = 30;
+    const W = 928, H = 230;
+    const padL = 8, padR = 8, padT = 20, padB = 10;
     const innerW = W - padL - padR;
     const innerH = H - padT - padB;
 
@@ -2369,16 +2439,19 @@
 
     const firstLabel = points[1] ? points[1].label : '';
     const lastLabel = points[points.length - 1].label;
-    const x1 = xScale(1).toFixed(1);
-    const xN = xScale(points.length - 1).toFixed(1);
-    const yX = H - 8;
+
+    // X labels in HTML (immune to SVG stretch distortion)
+    const xLabelsDiv = document.getElementById('capitalXLabels');
+    if (xLabelsDiv) {
+      xLabelsDiv.innerHTML =
+        '<span style="font-family:Space Mono,monospace;font-size:11px;color:' + dimColor + ';">' + firstLabel + '</span>' +
+        '<span style="font-family:Space Mono,monospace;font-size:11px;color:' + dimColor + ';">' + lastLabel + '</span>';
+    }
 
     svg.innerHTML = '<defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="' + lineColor + '" stop-opacity="0.18" /><stop offset="100%" stop-color="' + lineColor + '" stop-opacity="0" /></linearGradient></defs>' +
       gridLines +
       '<path d="' + areaPath + '" fill="url(#areaGrad)" />' +
-      '<path d="' + linePath + '" fill="none" stroke="' + lineColor + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />' +
-      '<text x="' + x1 + '" y="' + yX + '" text-anchor="start" font-size="11" fill="' + dimColor + '" font-family="monospace">' + firstLabel + '</text>' +
-      '<text x="' + xN + '" y="' + yX + '" text-anchor="end" font-size="11" fill="' + dimColor + '" font-family="monospace">' + lastLabel + '</text>';
+      '<path d="' + linePath + '" fill="none" stroke="' + lineColor + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />';
   }
 
   // ================= MT5 IMPORT =================
@@ -2871,6 +2944,52 @@
       return (val / 1000).toFixed(2).replace(/\.00$/, '') + 'K $';
     }
     return val.toFixed(val % 1 === 0 ? 0 : 2) + ' $';
+  }
+
+  // ---- EDIT TRADE ----
+  function openEditModal(id) {
+    const t = trades.find(t => t.id === id);
+    if (!t) return;
+    document.getElementById('e-id').value = t.id;
+    document.getElementById('e-date').value = t.date || '';
+    document.getElementById('e-asset').value = t.asset || 'XAUUSD';
+    document.getElementById('e-dir').value = t.dir || 'LONG';
+    document.getElementById('e-entry').value = t.entry || '';
+    document.getElementById('e-sl').value = t.sl || '';
+    document.getElementById('e-tp').value = t.tp || t.tp1 || '';
+    document.getElementById('e-lots').value = t.lots || '';
+    document.getElementById('e-result').value = t.result || 'open';
+    document.getElementById('e-pnl').value = t.pnl || 0;
+    document.getElementById('e-notes').value = t.notes || '';
+    document.getElementById('editModal').classList.add('open');
+  }
+
+  function closeEditModal() {
+    document.getElementById('editModal').classList.remove('open');
+  }
+
+  function saveEditTrade() {
+    const id = parseInt(document.getElementById('e-id').value);
+    const idx = trades.findIndex(t => t.id === id);
+    if (idx === -1) return;
+    trades[idx] = {
+      ...trades[idx],
+      date: document.getElementById('e-date').value,
+      asset: document.getElementById('e-asset').value.toUpperCase(),
+      dir: document.getElementById('e-dir').value,
+      entry: document.getElementById('e-entry').value,
+      sl: document.getElementById('e-sl').value,
+      tp: document.getElementById('e-tp').value,
+      lots: document.getElementById('e-lots').value,
+      result: document.getElementById('e-result').value,
+      pnl: parseFloat(document.getElementById('e-pnl').value) || 0,
+      notes: document.getElementById('e-notes').value,
+    };
+    saveAndSync(trades[idx]);
+    renderTable();
+    refreshCapitalDisplays();
+    updateStats();
+    closeEditModal();
   }
 
   // ---- BULK SELECTION ----
